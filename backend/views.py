@@ -180,3 +180,33 @@ def registered_events(request):
     events = [reg.event for reg in registrations]
     serializer = EventSerializer(events, many=True)
     return Response(serializer.data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def send_message_to_participants(request, event_id):
+    message = request.data.get('message')
+    if not message:
+        return Response({'error': 'Message is required'}, status=400)
+
+    try:
+        event = Event.objects.get(id=event_id, coordinator=request.user)
+    except Event.DoesNotExist:
+        return Response({'error': 'Event not found or not authorized'}, status=404)
+
+    registrations = Registration.objects.filter(event=event)
+    emails = [reg.user.email for reg in registrations if reg.user.email]
+
+    if not emails:
+        return Response({'error': 'No participants found for this event'}, status=404)
+
+    try:
+        send_mail(
+            subject=f'Message regarding event: {event.title}',
+            message=f'Hi,\n\n{message}\n\nRegards,\n{request.user.username}',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=emails,
+            fail_silently=False,
+        )
+        return Response({'success': f'Message sent to {len(emails)} participants'}, status=200)
+    except Exception as e:
+        return Response({'error': f'Failed to send email: {str(e)}'}, status=500)
